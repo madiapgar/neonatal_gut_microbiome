@@ -1,0 +1,66 @@
+---
+title: "MG_qiimeGraph_stats"
+author: "Madi"
+date: "2023-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(broom)
+library(tidyverse)
+library(vegan)
+library(qiime2R)
+```
+
+```{r}
+metadata_fixer <- function(metadata_fp) {
+  # we want a function that will get rid of the second
+  # line (qiime2 stuff that we don't need)
+  # to do this, we need to 
+  # only read in first two lines to save time.
+  tmpMeta <- read_csv(metadata_fp, n_max = 2)
+  mycols <- colnames(tmpMeta)
+  
+  #reading in metadata file, specifying that we want first two rows skipped
+  ## then we're saying that we want 'mycols' to be saved as the column names 
+  ## we took 'mycols' from the original metadata file (i.e. one of the rows that
+  ## we skipped)
+  metadata <- read_csv(metadata_fp, skip = 2, col_names = mycols)
+  ## return allows you to return an object as a variable instead of just printing
+  ## it 
+  return(metadata)
+} 
+```
+
+
+```{r}
+wd <- "~/neonatal-gut-microbiome/core-metrics-corrected-MG/"
+weighted_unifrac_dist <- read_qza(paste0(wd,
+                                  "weighted_unifrac_distance_matrix.qza"))$data
+
+metadata <- metadata_fixer("MG_metadata.csv")
+metadata %>% 
+  mutate(cage = as.factor(`cage-number`)) -> metadata
+```
+
+```{r}
+myadonis <- adonis2(weighted_unifrac_dist ~ cage + age,
+                   data = metadata,
+                   permutations = 999, parallel = 4)
+
+myadonis <- tidy(myadonis)
+write_csv(myadonis, 'weighted_unifrac_adonis.csv')
+myadonis
+```
+
+```{r}
+myadonis_sex <- adonis2(weighted_unifrac_dist ~ sex,
+                        data = metadata, 
+                        permutations = 999, parallel = 4)
+myadonis_sex <- tidy(myadonis_sex)
+```
+

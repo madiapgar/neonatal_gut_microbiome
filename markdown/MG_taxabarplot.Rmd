@@ -1,0 +1,138 @@
+---
+title: "MG-taxabarplot"
+author: "Madi"
+date: "2023-04-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(qiime2R)
+library(tidyverse)
+library(cowplot)
+library(magrittr)
+library(viridis)
+library(microshades)
+library(phyloseq)
+```
+
+**Functions**
+```{r}
+metadata_fixer <- function(metadata_fp) {
+  # we want a function that will get rid of the second
+  # line (qiime2 stuff that we don't need)
+  # to do this, we need to 
+  # only read in first two lines to save time.
+  tmpMeta <- read_csv(metadata_fp, n_max = 2)
+  mycols <- colnames(tmpMeta)
+  
+  #reading in metadata file, specifying that we want first two rows skipped
+  ## then we're saying that we want 'mycols' to be saved as the column names 
+  ## we took 'mycols' from the original metadata file (i.e. one of the rows that
+  ## we skipped)
+  metadata <- read_csv(metadata_fp, skip = 2, col_names = mycols)
+  ## return allows you to return an object as a variable instead of just printing
+  ## it 
+  return(metadata)
+} 
+```
+
+**Reading in needed files**
+needed files are my metadata file, the qiime2 taxonomy file, and my tax-filtered table
+```{r}
+svs <- read_qza(file='~/neonatal-gut-microbiome/tax-filtered-MG.qza')$data
+
+read_qza(file='~/neonatal-gut-microbiome/taxonomy-MG.qza')$data %>% 
+  parse_taxonomy() -> taxonomy_MG
+
+taxasums <- summarize_taxa(svs,taxonomy_MG)$Genus
+
+metadata <- metadata_fixer(metadata_fp = "MG_metadata.csv")
+```
+
+**Creating my long format biom table**
+needed to go from wide to long format or else it breaks ggplot
+```{r}
+taxasums %>% 
+  as_tibble(rownames = 'taxonomy') %>% 
+  gather(-taxonomy, key = sampleid, value = abund) %>% 
+  left_join(metadata) %>% 
+  group_by(sampleid) %>% 
+  mutate(relabund=abund/sum(abund)) %>% 
+  separate(taxonomy, into = c('Kingdom', 'Phylum', 'Class', 
+                              'Order', 'Family', 'Genus', 
+                              'Species'), sep = ' ') -> biom_long
+```
+
+**Creating my prevalence table**
+```{r}
+biom_long %>% 
+  select(Family, relabund, sampleid) %>% 
+  group_by(Family) %>% 
+  summarize(prevalence = sum(relabund > 0)/nrow(metadata)) %>% 
+  arrange(desc(prevalence)) -> prevalence
+
+PREVALENCE_THRESH <- 0.7
+```
+
+**Age Taxabarplot construction**
+this barplot is sectioned out by mouse age for visibility
+```{r, fig.width=25, fig.height=18}
+biom_long %>%
+  left_join(prevalence) %>% 
+  group_by(sampleid, Family, prevalence, age) %>% 
+  summarize(relabund = sum(relabund),
+            prevalence = sum(prevalence) > 0) %>% 
+  filter(prevalence > PREVALENCE_THRESH) %>% 
+  filter(Family != 'NA;') %>% 
+  filter(Family != 'Mammalia;') %>% 
+  filter(Family != 'uncultured;') -> family_taxa
+
+family_taxa %>% 
+  ggplot(aes(x = sampleid, y = relabund)) +
+    geom_bar(aes(fill = Family), color = 'black',
+             stat='identity', position='stack') +
+    scale_fill_viridis(option = 'B', name = 'Family', discrete = TRUE) +
+    facet_wrap(~age, scales = 'free_x') +
+    theme_bw(base_size = 16) +
+    xlab('Sample ID') +
+    ylab('Relative Abundance')
+```
+**Full Taxabarplot Construction**
+this taxabarplot has everything together!
+```{r, fig.width=15, fig.height=15}
+biom_long %>%
+  left_join(prevalence) %>% 
+  group_by(sampleid, Order, prevalence, age) %>% 
+  summarize(relabund = sum(relabund),
+            prevalence = sum(prevalence) > 0) %>% 
+  filter(prevalence > PREVALENCE_THRESH) %>% 
+  filter(Order != 'NA;') %>% 
+  ggplot(aes(x = age, y = relabund)) +
+    geom_bar(aes(fill = Order), color = 'black',
+             stat='identity', position='stack') +
+    scale_fill_viridis(option = "H", discrete = TRUE) +
+    xlab('Mouse Age') +
+    ylab('Relative Abundance')
+```
+**Attempting to figure out microshades for my taxa barplot**
+```{r}
+
+taxa_1 <- read_qza(file='~/neonatal-gut-microbiome/taxonomy-MG.qza')$data %>% 
+  parse_taxonomy()
+
+##taxa_1 %>% 
+ ## tax_glom('Family') %>% 
+ ## phyloseq::transform_sample_counts(function(x) {
+ ##   x/sum(x)
+ ## }) %>% 
+  ##psmelt() %>% 
+  ##filter(relabund > 0)
+
+##micro_color_gen <- create_color_dfs(family_taxa, group_level = 'Phylum', subgroup_level = 'Family', cvd = TRUE)
+
+```
+

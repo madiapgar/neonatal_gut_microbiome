@@ -1,0 +1,113 @@
+---
+title: "microshades"
+author: "Madi"
+date: "2023-04-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(qiime2R)
+library(tidyverse)
+library(cowplot)
+library(magrittr)
+library(viridis)
+library(microshades)
+library(phyloseq)
+```
+
+**Functions**
+```{r}
+metadata_fixer <- function(metadata_fp) {
+  # we want a function that will get rid of the second
+  # line (qiime2 stuff that we don't need)
+  # to do this, we need to 
+  # only read in first two lines to save time.
+  tmpMeta <- read_csv(metadata_fp, n_max = 2)
+  mycols <- colnames(tmpMeta)
+  
+  #reading in metadata file, specifying that we want first two rows skipped
+  ## then we're saying that we want 'mycols' to be saved as the column names 
+  ## we took 'mycols' from the original metadata file (i.e. one of the rows that
+  ## we skipped)
+  metadata <- read_csv(metadata_fp, skip = 2, col_names = mycols)
+  ## return allows you to return an object as a variable instead of just printing
+  ## it 
+  metadata <- as.data.frame(metadata)
+  rownames(metadata) <- metadata$sampleid
+  return(metadata)
+} 
+```
+
+**Reading in needed files**
+needed files are my metadata file, the qiime2 taxonomy file, and my tax-filtered table
+```{r}
+svs <- read_qza(file='~/neonatal-gut-microbiome/tax-filtered-MG.qza')$data
+
+read_qza(file='~/neonatal-gut-microbiome/taxonomy-MG.qza')$data %>% 
+  parse_taxonomy() -> taxonomy_MG
+
+# filter so that we have the same asvs in our tax table as in our 
+# biom table
+taxonomy_MG %>% 
+  filter(rownames(taxonomy_MG) %in% rownames(svs)) -> taxonomy_MG
+
+taxasums <- summarize_taxa(svs,taxonomy_MG)$Genus
+
+metadata <- metadata_fixer(metadata_fp = "MG_metadata.csv")
+```
+
+
+```{r}
+pseq <- phyloseq(otu_table(svs, taxa_are_rows = TRUE),
+                 tax_table(as.matrix(taxonomy_MG)),
+                 sample_data(metadata))
+
+pseq %>% 
+ tax_glom('Family') %>% 
+  phyloseq::transform_sample_counts(function(x) {
+    x/sum(x)
+     }) %>% 
+  psmelt() %>% 
+  filter(Abundance > 0) -> mdf_prep
+
+phylum_table <- tax_glom(pseq, taxrank="Phylum", ) %>% otu_table()
+phyla.otunames <- rownames(phylum_table)
+phylums <- tax_table(as.matrix(taxonomy_MG))[phyla.otunames,"Phylum"]
+sorted_phylums <- phylums[order(rowSums(phylum_table), decreasing=T)]
+
+color_objs_GP <- create_color_dfs(mdf_prep,
+                                 subgroup_level = 'Family',
+                                 selected_groups = sorted_phylums[5:1])
+
+
+# Extract
+mdf_GP <- color_objs_GP$mdf
+cdf_GP <- color_objs_GP$cdf
+# create a custom legend
+GP_legend <-custom_legend(mdf_GP, cdf_GP, 
+                          legend_key_size=unit(0.4, "cm"),
+                          legend_text_size=15, subgroup_level='Family')
+```
+
+
+```{r, fig.width=15, fig.height=7}
+plot <- plot_microshades(mdf_GP, cdf_GP)
+plot_1 <- plot + scale_y_continuous(labels = scales::percent, expand = expansion(0)) +
+      theme_bw(base_size = 18) +
+      theme(legend.position = "none")  +
+      theme(axis.text.x = element_blank()) +
+      facet_grid(~age, scales="free_x", space="free_x"
+                 ) +
+      ggtitle('Neonatal Mouse Microbiome Development') +
+      ylab('Relative Abundance')
+    
+multi <- plot_grid(plot_1, GP_legend,  rel_widths = c(1, .25),
+                       align = 'tblr',
+                       axis = 'tblr')
+multi
+```
+
