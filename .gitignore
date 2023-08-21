@@ -1,6 +1,7 @@
-*.tsv.gz
+*.fastq.gz
 *.DS_Store
 .Rproj.user
+.ipynb_checkpoints
 
 # History files
 .Rhistory
