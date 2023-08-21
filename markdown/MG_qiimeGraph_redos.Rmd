@@ -1,0 +1,288 @@
+---
+title: "MG_qiimeGraph_redos"
+author: "Madi"
+date: "2023-04-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(qiime2R)
+library(tidyverse)
+library(cowplot)
+library(magrittr)
+library(vegan)
+library(viridis)
+```
+**Functions**
+```{r}
+metadata_fixer <- function(metadata_fp) {
+  tmpMeta <- read_csv(metadata_fp, n_max = 2)
+  mycols <- colnames(tmpMeta)
+  metadata <- read_csv(metadata_fp, skip = 2, col_names = mycols)
+  return(metadata)
+} 
+
+
+## this function will pull out the percent variations from a specified column so you can add it to your pcoa plots 
+pcoa_ax_lab <- function(unifrac_var, col_name){
+  uni_lab <- as.character(round(unifrac_var[col_name] * 100, 2))
+  uni_lab <- paste0(col_name, ' - ', uni_lab, '%')
+  return(uni_lab)
+}
+```
+
+**File Paths**
+```{r}
+metadata_FP <- '../data/misc/MG_metadata.csv'
+unweighted_unifrac_fp <- '../data/qiime/core-metrics-corrected-MG/unweighted_unifrac_pcoa_results.qza'
+weighted_unifrac_fp <- '../data/qiime/core-metrics-corrected-MG/weighted_unifrac_pcoa_results.qza'
+shannon_fp <- '../data/qiime/core-metrics-corrected-MG/shannon_vector.qza'
+faith_fp <- '../data/qiime/core-metrics-corrected-MG/faith_pd_vector.qza'
+```
+
+**Reading in metadata file and fixing it**
+```{r}
+metadata <- metadata_fixer(metadata_fp = metadata_FP)
+
+names(metadata)[names(metadata) == 'cage-number'] <- 'cage_number'
+
+metadata %>% 
+  select(sampleid, age, cage_number, sex) %>% 
+  mutate(cage_number = as.factor(cage_number)) %>% 
+  mutate(age = as.factor(age)) -> metadata_red
+```
+
+**Reading in my unweighted Unifrac and Shannon files from Qiime2**
+```{r}
+unweighted_unifrac <- read_qza(unweighted_unifrac_fp)$data
+
+unweighted_unifrac_var <- unweighted_unifrac$ProportionExplained
+
+unweighted_unifrac <- unweighted_unifrac$Vectors
+
+names(unweighted_unifrac)[names(unweighted_unifrac) == 'SampleID'] <- 'sampleid'
+
+shannon <- read_qza(shannon_fp)$data %>% 
+  rownames_to_column("sampleid")
+```
+
+**Putting the unweighted tables together so I can graph them**
+```{r}
+unweighted_unifrac %>% 
+  left_join(metadata_red, by = 'sampleid') %>% 
+  left_join(shannon, by = 'sampleid') -> unweighted_unifrac
+```
+
+**GGplot construction of my unweighted Unifrac by age**
+```{r, fig.height=7, fig.width=10}
+unweighted_unifrac %>% 
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = age, size = shannon_entropy, shape = sex), alpha = 0.8) +
+  scale_color_viridis(option = "H", name = 'Age', discrete = TRUE) +
+  theme_bw(base_size = 14) +
+  scale_size_continuous(name = 'Shannon Diversity') +
+  scale_shape_manual(values = c(1,16), name = 'Sex') +
+  ggtitle('Unweighted Unifrac') -> unweighted_unifrac_age
+
+unweighted_unifrac_age
+```
+
+**Reading in weighted Unifrac from Qiime2**
+```{r}
+weighted_unifrac <- read_qza(weighted_unifrac_fp)$data
+
+weighted_unifrac_var <- weighted_unifrac$ProportionExplained
+
+weighted_unifrac <- weighted_unifrac$Vectors
+
+names(weighted_unifrac)[names(weighted_unifrac) == 'SampleID'] <- 'sampleid'
+```
+
+**Putting weighted tables together so I can graph them**
+```{r}
+weighted_unifrac %>% 
+  left_join(metadata_red, by = 'sampleid') %>% 
+  left_join(shannon, by = 'sampleid') -> weighted_unifrac
+```
+
+**GGplot construction of my weighted Unifrac by age**
+```{r, fig.height=7, fig.width=10}
+weighted_unifrac %>% 
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = age, shape = sex, size = shannon_entropy), alpha = 0.8) +
+  scale_color_viridis(option = "H", name = 'Age', discrete = TRUE)+
+  theme_bw(base_size = 14) +
+  scale_size_continuous(name = 'Shannon Diversity') +
+  scale_shape_manual(values = c(1,16), name = 'Sex') +
+  ggtitle('Weighted Unifrac') -> weighted_unifrac_age
+
+weighted_unifrac_age
+```
+
+**Ggplot for unweighted Unifrac by cage number**
+this is too look at/hopefully eliminate cage effects in the results. 
+```{r, fig.height=7, fig.width=10}
+unweighted_unifrac %>% 
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = cage_number, size = shannon_entropy, shape = sex), alpha = 0.8) +
+  scale_color_viridis(option = "C", name = 'Cage Number', discrete = TRUE) +
+  theme_bw(base_size = 14) +
+  scale_size_continuous(name = 'Shannon Diversity') +
+  scale_shape_manual(values = c(1,16), name = 'Sex') +
+  ggtitle('Unweighted Unifrac') -> unweighted_unifrac_cageNum
+
+unweighted_unifrac_cageNum
+```
+
+**Ggplot for weighted Unifrac by cage number**
+```{r, fig.height=7, fig.width=10}
+weighted_unifrac %>% 
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = cage_number, shape = sex, size = shannon_entropy), alpha = 0.8) +
+  scale_color_viridis(option = "C", name = 'Cage Number', discrete = TRUE)+
+  theme_bw(base_size = 14) +
+  scale_size_continuous(name = 'Shannon Diversity') +
+  scale_shape_manual(values = c(1,16), name = 'Sex') +
+  ggtitle('Weighted Unifrac') -> weighted_unifrac_cageNum
+
+weighted_unifrac_cageNum
+```
+
+**Shannon Diversity**
+this is an attempt at putting the shannon diversity graph together. Shannon diversity values fall between 0 and 1, with lower values meaning that there's less diversity and higher values meaning that there's more diversity in the community of microbes that is being measured. So, we'd expect to see higher shannon diversity values around day 14 than at day 7 (which we do) and that the overall trend line will be moving upwards (as it does). Shannon diversity takes into account community richness and evenness. 
+```{r, fig.height=4.5, fig.width=7}
+metadata %>% 
+  left_join(shannon, by = 'sampleid') -> shannon_div
+
+shannon_div %>% 
+  ggplot(aes(x = age, y = shannon_entropy)) +
+  geom_point() +
+  geom_smooth(method = 'lm', se = FALSE, color = 'blue') +
+  scale_x_continuous(breaks = c(7, 8, 9, 10, 11, 12, 13, 14)) +
+  theme_bw(base_size = 14) +
+  ggtitle('Shannon Diversity') +
+  xlab('Age') +
+  ylab('Shannon Diversity') -> shannon_plot
+
+shannon_plot
+```
+
+
+**Faith-PD Alpha Diversity**
+reading in my faith-pd data and attempting to make a boxplot out of that....I did it!! :). casey said no color so you get no color
+```{r, fig.height=5, fig.width=8}
+faith_pd <- read_qza(faith_fp)$data
+
+names(faith_pd)[names(faith_pd) == 'V1'] <- 'sampleid'
+names(faith_pd)[names(faith_pd) == 'V2'] <- 'faith_pd'
+
+metadata %>% 
+  left_join(faith_pd, by = 'sampleid') -> faith_pd
+
+faith_pd %>% 
+  ggplot(aes(x = age, y = faith_pd)) +
+  geom_boxplot(aes(group = age), outlier.shape = NA) +
+  geom_jitter(width = 0.1, height = 0) +
+  scale_x_continuous(breaks = 7:14) +
+  geom_smooth(se = FALSE) +
+  theme_bw(base_size = 16) +
+  ggtitle("Faith's Phylogenic Diversity") +
+  xlab('Age') +
+  ylab("Faith's PD") -> faith_plot
+
+faith_plot
+```
+
+**Reading in weighted Unifrac from Qiime2 for Faith PD plots**
+```{r}
+weighted_unifrac_faith <- read_qza(weighted_unifrac_fp)$data
+
+weighted_unifrac_faith <- weighted_unifrac_faith$Vectors
+
+names(weighted_unifrac_faith)[names(weighted_unifrac_faith) == 'SampleID'] <- 'sampleid'
+
+faith_pd <- read_qza(faith_fp)$data
+
+names(faith_pd)[names(faith_pd) == 'V1'] <- 'sampleid'
+names(faith_pd)[names(faith_pd) == 'V2'] <- 'faith_pd'
+```
+
+
+**Putting weighted tables together so I can graph them - Faith PD version**
+```{r}
+weighted_unifrac_faith %>% 
+  left_join(metadata_red, by = 'sampleid') %>% 
+  left_join(faith_pd, by = 'sampleid') -> weighted_unifrac_faith
+```
+
+
+**GGplot construction of my weighted Unifrac by age with Faith PD**
+```{r, fig.height=7, fig.width=10}
+w_uni_xlab <- pcoa_ax_lab(weighted_unifrac_var, 'PC1')
+w_uni_ylab <- pcoa_ax_lab(weighted_unifrac_var, 'PC2')
+
+weighted_unifrac_faith %>% 
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = age, size = faith_pd), alpha = 0.8) +
+  scale_color_viridis(option = "H", name = 'Age', discrete = TRUE)+
+  theme_bw(base_size = 16) +
+  scale_size_continuous(name = "Faith's PD") +
+  ggtitle('Weighted Unifrac by Age') +
+  labs(x = w_uni_xlab, y = w_uni_ylab) -> wu_plot_faith_age
+
+wu_plot_faith_age
+```
+
+
+**Ggplot construction of my weighted Unifrac by cage number with Faith PD**
+```{r, fig.height=7, fig.width=10}
+weighted_unifrac_faith %>% 
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = cage_number, size = faith_pd), alpha = 0.8) +
+  scale_color_viridis(option = "C", name = 'Cage Number', discrete = TRUE) +
+  theme_bw(base_size = 16) +
+  scale_size_continuous(name = "Faith's PD") +
+  ggtitle('Weighted Unifrac by Cage Number') +
+  labs(x = w_uni_xlab, y = w_uni_ylab) -> wu_plot_faith_cage
+
+wu_plot_faith_cage
+```
+
+**Saving Plot Outputs**
+```{r}
+ggsave('unweighted_unifrac_age.pdf',
+       plot = unweighted_unifrac_age, 
+       width = 10,
+       height = 7,
+       path = '../plots')
+ggsave('weighted_unifrac_age.pdf',
+       plot = weighted_unifrac_age, 
+       width = 10,
+       height = 7,
+       path = '../plots')
+ggsave('unweighted_unifrac_cage.pdf',
+       plot = unweighted_unifrac_cageNum, 
+       width = 10,
+       height = 7,
+       path = '../plots')
+ggsave('weighted_unifrac_cage.pdf',
+       plot = weighted_unifrac_cageNum, 
+       width = 10,
+       height = 7,
+       path = '../plots')
+ggsave('shannon_entropy.pdf',
+       plot = shannon_plot, 
+       width = 7,
+       height = 4.5,
+       path = '../plots')
+ggsave('faith_pd.pdf',
+       plot = faith_plot, 
+       width = 8,
+       height = 5,
+       path = '../plots')
+```
+
