@@ -17,15 +17,57 @@ library(magrittr)
 library(vegan)
 library(viridis)
 ```
+
 **Functions**
 ```{r}
-metadata_fixer <- function(metadata_fp) {
-  tmpMeta <- read_csv(metadata_fp, n_max = 2)
-  mycols <- colnames(tmpMeta)
-  metadata <- read_csv(metadata_fp, skip = 2, col_names = mycols)
-  return(metadata)
-} 
-
+## table construction and file prep for ggplot
+file_prep <- function(metadata_fp,
+                      unweighted_unifrac_fp,
+                      weighted_unifrac_fp,
+                      shannon_fp,
+                      faith_fp){
+  ## metadata file
+  full_metadata <- read_tsv(metadata_fp)
+  full_metadata %>% 
+    select(sampleid, age, cage_number, sex) %>% 
+    mutate(cage_number = as.factor(cage_number)) %>% 
+    mutate(age = as.factor(age)) -> metadata
+  ## unweighted unifrac 
+  unweighted_unifrac <- read_qza(unweighted_unifrac_fp)$data
+  unweighted_unifrac_var <- unweighted_unifrac$ProportionExplained
+  unweighted_unifrac <- unweighted_unifrac$Vectors
+  names(unweighted_unifrac)[names(unweighted_unifrac) == 'SampleID'] <- 'sampleid'
+  ## weighted unifrac
+  weighted_unifrac <- read_qza(weighted_unifrac_fp)$data
+  weighted_unifrac_var <- weighted_unifrac$ProportionExplained
+  weighted_unifrac <- weighted_unifrac$Vectors
+  names(weighted_unifrac)[names(weighted_unifrac) == 'SampleID'] <- 'sampleid'
+  ## shannon
+  shannon <- read_qza(shannon_fp)$data %>% 
+             rownames_to_column("sampleid")
+  ## faith's pd
+  faith_pd <- read_qza(faith_fp)$data
+  names(faith_pd)[names(faith_pd) == 'V1'] <- 'sampleid'
+  names(faith_pd)[names(faith_pd) == 'V2'] <- 'faith_pd'
+  ## creating tables for beta diversity ggplot construction
+  ## unweighted unifrac
+  unweighted_unifrac %>% 
+    left_join(metadata, by = 'sampleid') %>% 
+    left_join(shannon, by = 'sampleid') %>% 
+    left_join(faith_pd, by = 'sampleid') -> unweighted_biom
+  ## weighted unifrac
+  weighted_unifrac %>% 
+    left_join(metadata, by = 'sampleid') %>% 
+    left_join(shannon, by = 'sampleid') %>% 
+    left_join(faith_pd, by = 'sampleid') -> weighted_biom
+  ## creating a list of outputs
+  my_list <- list(Metadata = metadata,
+                  UnweightedUniFrac = unweighted_biom,
+                  UnweightedProportionExplained = unweighted_unifrac_var,
+                  WeightedUniFrac = weighted_biom,
+                  WeightedProportionExplained = weighted_unifrac_var)
+  return(my_list)
+}
 
 ## this function will pull out the percent variations from a specified column so you can add it to your pcoa plots 
 pcoa_ax_lab <- function(unifrac_var, col_name){
@@ -37,45 +79,28 @@ pcoa_ax_lab <- function(unifrac_var, col_name){
 
 **File Paths**
 ```{r}
-metadata_FP <- '../data/misc/MG_metadata.csv'
-unweighted_unifrac_fp <- '../data/qiime/core-metrics-corrected-MG/unweighted_unifrac_pcoa_results.qza'
-weighted_unifrac_fp <- '../data/qiime/core-metrics-corrected-MG/weighted_unifrac_pcoa_results.qza'
-shannon_fp <- '../data/qiime/core-metrics-corrected-MG/shannon_vector.qza'
-faith_fp <- '../data/qiime/core-metrics-corrected-MG/faith_pd_vector.qza'
+metadata_FP <- '../data/misc/corrected_metadata.tsv'
+unweighted_unifrac_FP <- '../data/qiime/core-metrics-corrected-MG/unweighted_unifrac_pcoa_results.qza'
+weighted_unifrac_FP <- '../data/qiime/core-metrics-corrected-MG/weighted_unifrac_pcoa_results.qza'
+shannon_FP <- '../data/qiime/core-metrics-corrected-MG/shannon_vector.qza'
+faith_FP <- '../data/qiime/core-metrics-corrected-MG/faith_pd_vector.qza'
 ```
 
-**Reading in metadata file and fixing it**
+**Beta Diversity File Prep and Extraction from Named List**
 ```{r}
-metadata <- metadata_fixer(metadata_fp = metadata_FP)
+beta_files <- file_prep(metadata_FP,
+                        unweighted_unifrac_FP,
+                        weighted_unifrac_FP,
+                        shannon_FP,
+                        faith_FP)
 
-names(metadata)[names(metadata) == 'cage-number'] <- 'cage_number'
-
-metadata %>% 
-  select(sampleid, age, cage_number, sex) %>% 
-  mutate(cage_number = as.factor(cage_number)) %>% 
-  mutate(age = as.factor(age)) -> metadata_red
+metadata <- beta_files$Metadata
+unweighted_unifrac <- beta_files$UnweightedUniFrac
+uu_prop_exp <- beta_files$UnweightedProportionExplained
+weighted_unifrac <- beta_files$WeightedUniFrac
+wu_prop_exp <- beta_files$WeightedProportionExplained
 ```
 
-**Reading in my unweighted Unifrac and Shannon files from Qiime2**
-```{r}
-unweighted_unifrac <- read_qza(unweighted_unifrac_fp)$data
-
-unweighted_unifrac_var <- unweighted_unifrac$ProportionExplained
-
-unweighted_unifrac <- unweighted_unifrac$Vectors
-
-names(unweighted_unifrac)[names(unweighted_unifrac) == 'SampleID'] <- 'sampleid'
-
-shannon <- read_qza(shannon_fp)$data %>% 
-  rownames_to_column("sampleid")
-```
-
-**Putting the unweighted tables together so I can graph them**
-```{r}
-unweighted_unifrac %>% 
-  left_join(metadata_red, by = 'sampleid') %>% 
-  left_join(shannon, by = 'sampleid') -> unweighted_unifrac
-```
 
 **GGplot construction of my unweighted Unifrac by age**
 ```{r, fig.height=7, fig.width=10}
